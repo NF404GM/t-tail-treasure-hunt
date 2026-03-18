@@ -1,0 +1,5 @@
+{
+  "name": "T-Tail Treasure Hunt",
+  "description": "A magical island adventure for pediatric speech therapy focusing on final /t/ minimal pairs.",
+  "requestFramePermissions": ["camera", "microphone"]
+}
