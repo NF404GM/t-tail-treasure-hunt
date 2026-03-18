@@ -3,7 +3,8 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { Stars, Trail } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
-import { useAudioAnalyzer, AudioControls } from '../hooks/useAudioAnalyzer';
+import { useAudioAnalyzer, type AudioControls } from '../hooks/useAudioAnalyzer';
+import type { EchoRushState, EchoRushParticle, HudState, AudioCalibration } from '../types';
 import { Play, RotateCcw, Shield, Zap } from 'lucide-react';
 
 const GRAVITY = -35;
@@ -13,37 +14,7 @@ const BOOST_SPEED = 45;
 const MAX_OBSTACLES = 15;
 const MAX_PARTICLES = 200;
 
-type ObstacleType = 'hurdle' | 'wall';
-
-interface Obstacle {
-  type: ObstacleType;
-  x: number;
-  z: number;
-  active: boolean;
-}
-
-interface Particle {
-  x: number;
-  y: number;
-  z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  life: number;
-}
-
-interface GameState {
-  status: 'idle' | 'playing' | 'gameover';
-  score: number;
-  speed: number;
-  multiplier: number;
-  isShielded: boolean;
-  isBoosting: boolean;
-  obstacles: Obstacle[];
-  particles: Particle[];
-}
-
-function createInitialGameState(): GameState {
+function createInitialGameState(): EchoRushState {
   return {
     status: 'idle',
     score: 0,
@@ -56,7 +27,7 @@ function createInitialGameState(): GameState {
   };
 }
 
-function spawnParticles(gs: GameState, x: number, y: number, z: number) {
+function spawnParticles(gs: EchoRushState, x: number, y: number, z: number) {
   for (let i = 0; i < 20; i++) {
     if (gs.particles.length >= MAX_PARTICLES) break;
     gs.particles.push({
@@ -69,13 +40,7 @@ function spawnParticles(gs: GameState, x: number, y: number, z: number) {
   }
 }
 
-interface HudState {
-  shield: boolean;
-  boost: boolean;
-  multiplier: number;
-}
-
-const Particles = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
+const Particles = ({ gsRef }: { gsRef: React.RefObject<EchoRushState> }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useRef(new THREE.Object3D()).current;
 
@@ -85,7 +50,7 @@ const Particles = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
 
     let count = 0;
     for (let i = gs.particles.length - 1; i >= 0; i--) {
-      const p = gs.particles[i];
+      const p: EchoRushParticle = gs.particles[i];
       p.life -= delta * 1.5;
       if (p.life <= 0) {
         gs.particles.splice(i, 1);
@@ -124,7 +89,7 @@ const Player = ({
   onGameOver,
   onHudUpdate,
 }: {
-  gsRef: React.RefObject<GameState>;
+  gsRef: React.RefObject<EchoRushState>;
   getAudioControls: () => AudioControls;
   onGameOver: () => void;
   onHudUpdate: (hud: HudState) => void;
@@ -209,7 +174,6 @@ const Player = ({
       }
     }
 
-    // Push HUD updates at ~10fps instead of polling
     hudThrottle.current += delta;
     if (hudThrottle.current > 0.1) {
       hudThrottle.current = 0;
@@ -237,7 +201,7 @@ const Player = ({
   );
 };
 
-const ObstaclesManager = ({ gsRef, onScoreUpdate }: { gsRef: React.RefObject<GameState>; onScoreUpdate: (score: number) => void }) => {
+const ObstaclesManager = ({ gsRef, onScoreUpdate }: { gsRef: React.RefObject<EchoRushState>; onScoreUpdate: (score: number) => void }) => {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame((_, delta) => {
@@ -314,15 +278,16 @@ const ObstaclesManager = ({ gsRef, onScoreUpdate }: { gsRef: React.RefObject<Gam
   );
 };
 
-const MovingGrid = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
+const MovingGrid = ({ gsRef }: { gsRef: React.RefObject<EchoRushState> }) => {
   const gridRef = useRef<THREE.GridHelper>(null);
 
   useFrame((_, delta) => {
     const gs = gsRef.current;
     if (gridRef.current && gs && gs.status === 'playing') {
       gridRef.current.position.z += gs.speed * delta;
+      // Account for speed when wrapping
       if (gridRef.current.position.z > 10) {
-        gridRef.current.position.z = 0;
+        gridRef.current.position.z -= 10;
       }
     }
   });
@@ -330,7 +295,7 @@ const MovingGrid = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
   return <gridHelper ref={gridRef} args={[60, 60, '#00ffff', '#0a192f']} position={[0, 0, 0]} />;
 };
 
-const CameraController = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
+const CameraController = ({ gsRef }: { gsRef: React.RefObject<EchoRushState> }) => {
   useFrame((state, delta) => {
     const gs = gsRef.current;
     if (gs && gs.status === 'playing') {
@@ -351,12 +316,12 @@ const CameraController = ({ gsRef }: { gsRef: React.RefObject<GameState> }) => {
   return null;
 };
 
-export const EchoRushCanvas = () => {
-  const { isListening, error: micError, startListening, stopListening, getAudioControls } = useAudioAnalyzer();
+export const EchoRushCanvas = ({ calibration }: { calibration?: AudioCalibration }) => {
+  const { isListening, error: micError, startListening, stopListening, getAudioControls } = useAudioAnalyzer(calibration);
   const [uiState, setUiState] = useState<'idle' | 'playing' | 'gameover'>('idle');
   const [score, setScore] = useState(0);
   const [hud, setHud] = useState<HudState>({ shield: false, boost: false, multiplier: 1 });
-  const gsRef = useRef<GameState>(createInitialGameState());
+  const gsRef = useRef<EchoRushState>(createInitialGameState());
 
   useEffect(() => {
     gsRef.current = createInitialGameState();
@@ -387,7 +352,7 @@ export const EchoRushCanvas = () => {
   }, []);
 
   return (
-    <div className="relative w-full h-[600px] rounded-3xl overflow-hidden bg-[#020617] shadow-2xl border-4 border-cyan-900/50">
+    <div className="relative w-full aspect-video max-h-[80vh] min-h-[400px] rounded-3xl overflow-hidden bg-[#020617] shadow-2xl border-4 border-cyan-900/50">
 
       {/* Mic Error Banner */}
       {micError && (
